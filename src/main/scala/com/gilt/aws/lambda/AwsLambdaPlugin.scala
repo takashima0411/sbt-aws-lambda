@@ -52,7 +52,7 @@ object AwsLambdaPlugin extends AutoPlugin {
     handlerName := None,
     lambdaHandlers := List.empty[(String, String)],
     roleArn := None,
-    region := Some("us-east-1"),
+    region := None,
     awsLambdaMemory := None,
     awsLambdaTimeout := None
   )
