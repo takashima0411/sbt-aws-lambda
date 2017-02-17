@@ -1,5 +1,6 @@
 package com.gilt.aws.lambda
 
+import com.amazonaws.services.lambda.model.{FunctionCode, UpdateFunctionCodeRequest}
 import sbt._
 
 import scala.util.{Failure, Success}
@@ -19,6 +20,7 @@ object AwsLambdaPlugin extends AutoPlugin {
     val awsLambdaTimeout = settingKey[Option[Int]]("The Lambda timeout length in seconds (1-300)")
     val awsLambdaMemory = settingKey[Option[Int]]("The amount of memory in MB for the Lambda function (128-1536, multiple of 64)")
     val lambdaHandlers = settingKey[Seq[(String, String)]]("A sequence of pairs of Lambda function names to handlers (for multiple handlers in one jar)")
+    val deployMethod = settingKey[Option[String]]("S3 for using an S3 bucket to upload the jar or DIRECT for directly uploading a jar file.")
     val deadLetterArn = settingKey[Option[String]]("ARN of the Dead Letter Queue or Topic to send unprocessed messages")
   }
 
@@ -28,6 +30,7 @@ object AwsLambdaPlugin extends AutoPlugin {
 
   override lazy val projectSettings = Seq(
     updateLambda := doUpdateLambda(
+      deployMethod = deployMethod.value,
       region = region.value,
       jar = sbtassembly.AssemblyKeys.assembly.value,
       s3Bucket = s3Bucket.value,
@@ -37,6 +40,7 @@ object AwsLambdaPlugin extends AutoPlugin {
       lambdaHandlers = lambdaHandlers.value
     ),
     createLambda := doCreateLambda(
+      deployMethod = deployMethod.value,
       region = region.value,
       jar = sbtassembly.AssemblyKeys.assembly.value,
       s3Bucket = s3Bucket.value,
@@ -55,60 +59,99 @@ object AwsLambdaPlugin extends AutoPlugin {
     lambdaHandlers := List.empty[(String, String)],
     roleArn := None,
     region := None,
+    deployMethod := Some("S3"),
     awsLambdaMemory := None,
     awsLambdaTimeout := None
   )
 
-  private def doUpdateLambda(region: Option[String], jar: File, s3Bucket: Option[String], s3KeyPrefix: Option[String], lambdaName: Option[String], 
-      handlerName: Option[String], lambdaHandlers: Seq[(String, String)]): Map[String, LambdaARN] = {
+  private def doUpdateLambda(deployMethod: Option[String], region: Option[String], jar: File, s3Bucket: Option[String], s3KeyPrefix: Option[String],
+                             lambdaName: Option[String], handlerName: Option[String], lambdaHandlers: Seq[(String, String)]): Map[String, LambdaARN] = {
+    val resolvedDeployMethod = resolveDeployMethod(deployMethod)
     val resolvedRegion = resolveRegion(region)
-    val resolvedBucketId = resolveBucketId(s3Bucket)
-    val resolvedS3KeyPrefix = resolveS3KeyPrefix(s3KeyPrefix)
     val resolvedLambdaHandlers = resolveLambdaHandlers(lambdaName, handlerName, lambdaHandlers)
 
-    AwsS3.pushJarToS3(jar, resolvedBucketId, resolvedS3KeyPrefix) match {
-      case Success(s3Key) => (for (resolvedLambdaName <- resolvedLambdaHandlers.keys) yield {
-        AwsLambda.updateLambda(resolvedRegion, resolvedLambdaName, resolvedBucketId, s3Key) match {
-          case Success(updateFunctionCodeResult) =>
-            resolvedLambdaName.value -> LambdaARN(updateFunctionCodeResult.getFunctionArn)
-          case Failure(exception) =>
-            sys.error(s"Error updating lambda: ${exception.getLocalizedMessage}\n${exception.getStackTraceString}")
-        }
+    if (resolvedDeployMethod.value == "S3") {
+      val resolvedBucketId = resolveBucketId(s3Bucket)
+      val resolvedS3KeyPrefix = resolveS3KeyPrefix(s3KeyPrefix)
+
+      AwsS3.pushJarToS3(jar, resolvedBucketId, resolvedS3KeyPrefix) match {
+        case Success(s3Key) => (for (resolvedLambdaName <- resolvedLambdaHandlers.keys) yield {
+          val updateFunctionCodeRequest = AwsLambda.createUpdateFunctionCodeRequestFromS3(resolvedBucketId, s3Key, resolvedLambdaName)
+
+          updateFunctionCode(resolvedRegion, resolvedLambdaName, updateFunctionCodeRequest)
+        }).toMap
+        case Failure(exception) =>
+          sys.error(s"Error uploading jar to S3 lambda: ${exception.getLocalizedMessage}\n${exception.getStackTraceString}")
+      }
+    } else if (resolvedDeployMethod.value == "DIRECT") {
+      (for (resolvedLambdaName <- resolvedLambdaHandlers.keys) yield {
+        val updateFunctionCodeRequest = AwsLambda.createUpdateFunctionCodeRequestFromJar(jar, resolvedLambdaName)
+
+        updateFunctionCode(resolvedRegion, resolvedLambdaName, updateFunctionCodeRequest)
       }).toMap
+    } else
+      sys.error(s"Unsupported deploy method: ${resolvedDeployMethod.value}")
+  }
+
+  def updateFunctionCode(resolvedRegion: Region, resolvedLambdaName: LambdaName, updateFunctionCodeRequest: UpdateFunctionCodeRequest): (String, LambdaARN) = {
+    AwsLambda.updateLambdaWithFunctionCodeRequest(resolvedRegion, resolvedLambdaName, updateFunctionCodeRequest) match {
+      case Success(updateFunctionCodeResult) =>
+        resolvedLambdaName.value -> LambdaARN(updateFunctionCodeResult.getFunctionArn)
       case Failure(exception) =>
-        sys.error(s"Error uploading jar to S3 lambda: ${exception.getLocalizedMessage}\n${exception.getStackTraceString}")
+        sys.error(s"Error updating lambda: ${exception.getLocalizedMessage}\n${exception.getStackTraceString}")
     }
   }
 
-  private def doCreateLambda(region: Option[String], jar: File, s3Bucket: Option[String], s3KeyPrefix: Option[String], lambdaName: Option[String], 
+  private def doCreateLambda(deployMethod: Option[String], region: Option[String], jar: File, s3Bucket: Option[String], s3KeyPrefix: Option[String], lambdaName: Option[String], 
       handlerName: Option[String], lambdaHandlers: Seq[(String, String)], roleArn: Option[String], timeout: Option[Int], memory: Option[Int], deadLetterArn: Option[String]): Map[String, LambdaARN] = {
+    val resolvedDeployMethod = resolveDeployMethod(deployMethod)
     val resolvedRegion = resolveRegion(region)
     val resolvedLambdaHandlers = resolveLambdaHandlers(lambdaName, handlerName, lambdaHandlers)
     val resolvedRoleName = resolveRoleARN(roleArn)
-    val resolvedBucketId = resolveBucketId(s3Bucket)
-    val resolvedS3KeyPrefix = resolveS3KeyPrefix(s3KeyPrefix)
     val resolvedTimeout = resolveTimeout(timeout)
     val resolvedMemory = resolveMemory(memory)
     val resolvedDeadLetterArn = resolveDeadLetterARN(deadLetterArn)
 
-    AwsS3.pushJarToS3(jar, resolvedBucketId, resolvedS3KeyPrefix) match {
-      case Success(s3Key) =>
-        for ((resolvedLambdaName, resolvedHandlerName) <- resolvedLambdaHandlers) yield {
-          AwsLambda.createLambda(resolvedRegion, jar, resolvedLambdaName, resolvedHandlerName, resolvedRoleName,
-            resolvedBucketId, resolvedS3KeyPrefix, resolvedTimeout, resolvedMemory, resolvedDeadLetterArn) match {
-            case Success(createFunctionCodeResult) =>
-              resolvedLambdaName.value -> LambdaARN(createFunctionCodeResult.getFunctionArn)
-            case Failure(exception) =>
-              sys.error(s"Failed to create lambda function: ${exception.getLocalizedMessage}\n${exception.getStackTraceString}")
+    if (resolvedDeployMethod.value == "S3") {
+      val resolvedBucketId = resolveBucketId(s3Bucket)
+      val resolvedS3KeyPrefix = resolveS3KeyPrefix(s3KeyPrefix)
+      AwsS3.pushJarToS3(jar, resolvedBucketId, resolvedS3KeyPrefix) match {
+        case Success(s3Key) =>
+          for ((resolvedLambdaName, resolvedHandlerName) <- resolvedLambdaHandlers) yield {
+            val functionCode = AwsLambda.createFunctionCodeFromS3(jar, resolvedBucketId)
+
+            createLambdaWithFunctionCode(jar, resolvedRegion, resolvedRoleName, resolvedTimeout, resolvedMemory,
+              resolvedLambdaName, resolvedHandlerName, resolvedDeadLetterArn, functionCode)
           }
-        }
+        case Failure(exception) =>
+          sys.error(s"Error upload jar to S3 lambda: ${exception.getLocalizedMessage}\n${exception.getStackTraceString}")
+      }
+    } else if (resolvedDeployMethod.value == "DIRECT") {
+      (for ((resolvedLambdaName, resolvedHandlerName) <- resolvedLambdaHandlers) yield {
+        val functionCode = AwsLambda.createFunctionCodeFromJar(jar)
+
+        createLambdaWithFunctionCode(jar, resolvedRegion, resolvedRoleName, resolvedTimeout, resolvedMemory,
+          resolvedLambdaName, resolvedHandlerName, functionCode)
+      })
+    } else
+      sys.error(s"Unsupported deploy method: ${resolvedDeployMethod.value}")
+  }
+
+  def createLambdaWithFunctionCode(jar: File, resolvedRegion: Region, resolvedRoleName: RoleARN, resolvedTimeout: Option[Timeout], resolvedMemory: Option[Memory], resolvedLambdaName: LambdaName, resolvedHandlerName: HandlerName, resolvedDeadLetterArn: Option[String], functionCode: FunctionCode): (String, LambdaARN) = {
+    AwsLambda.createLambdaWithFunctionCode(resolvedRegion, jar, resolvedLambdaName, resolvedHandlerName, resolvedRoleName,
+      resolvedTimeout, resolvedMemory, resolvedDeadLetterArn, functionCode) match {
+      case Success(createFunctionCodeResult) =>
+        resolvedLambdaName.value -> LambdaARN(createFunctionCodeResult.getFunctionArn)
       case Failure(exception) =>
-        sys.error(s"Error upload jar to S3 lambda: ${exception.getLocalizedMessage}\n${exception.getStackTraceString}")
+        sys.error(s"Failed to create lambda function: ${exception.getLocalizedMessage}\n${exception.getStackTraceString}")
     }
   }
 
   private def resolveRegion(sbtSettingValueOpt: Option[String]): Region =
     sbtSettingValueOpt orElse sys.env.get(EnvironmentVariables.region) map Region getOrElse promptUserForRegion()
+
+  private def resolveDeployMethod(sbtSettingValueOpt: Option[String]): DeployMethod =
+    sbtSettingValueOpt orElse sys.env.get(EnvironmentVariables.deployMethod) map DeployMethod getOrElse promptUserForDeployMethod()
 
   private def resolveBucketId(sbtSettingValueOpt: Option[String]): S3BucketId =
     sbtSettingValueOpt orElse sys.env.get(EnvironmentVariables.bucketId) map S3BucketId getOrElse promptUserForS3BucketId()
@@ -142,6 +185,12 @@ object AwsLambdaPlugin extends AutoPlugin {
     val inputValue = readInput(s"Enter the name of the AWS region to connect to. (You also could have set the environment variable: ${EnvironmentVariables.region} or the sbt setting: region)")
 
     Region(inputValue)
+  }
+
+  private def promptUserForDeployMethod(): DeployMethod = {
+    val inputValue = readInput(s"Enter the method of deploy you want to use (S3 or DIRECT). (You also could have set the environment variable: ${EnvironmentVariables.deployMethod} or the sbt setting: deployMethod)")
+
+    DeployMethod(inputValue)
   }
 
   private def promptUserForS3BucketId(): S3BucketId = {
