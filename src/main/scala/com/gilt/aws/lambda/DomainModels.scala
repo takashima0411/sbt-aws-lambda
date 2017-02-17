@@ -14,6 +14,7 @@ case class Memory(value: Int) {
   require(value >= 128 && value <= 1536, "Lambda memory must be between 128 and 1536 MBs")
   require(value % 64 == 0)
 }
+case class DeadLetterARN(value: String)
 
 
 object EnvironmentVariables {
@@ -25,4 +26,5 @@ object EnvironmentVariables {
   val roleArn = "AWS_LAMBDA_IAM_ROLE_ARN"
   val timeout = "AWS_LAMBDA_TIMEOUT"
   val memory = "AWS_LAMBDA_MEMORY"
+  val deadLetterArn = "AWS_LAMBDA_DEAD_LETTER_ARN"
 }

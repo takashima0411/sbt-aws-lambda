@@ -19,6 +19,7 @@ object AwsLambdaPlugin extends AutoPlugin {
     val awsLambdaTimeout = settingKey[Option[Int]]("The Lambda timeout length in seconds (1-300)")
     val awsLambdaMemory = settingKey[Option[Int]]("The amount of memory in MB for the Lambda function (128-1536, multiple of 64)")
     val lambdaHandlers = settingKey[Seq[(String, String)]]("A sequence of pairs of Lambda function names to handlers (for multiple handlers in one jar)")
+    val deadLetterArn = settingKey[Option[String]]("ARN of the Dead Letter Queue or Topic to send unprocessed messages")
   }
 
   import autoImport._
@@ -45,7 +46,8 @@ object AwsLambdaPlugin extends AutoPlugin {
       lambdaHandlers = lambdaHandlers.value,
       roleArn = roleArn.value,
       timeout = awsLambdaTimeout.value,
-      memory = awsLambdaMemory.value
+      memory = awsLambdaMemory.value,
+      deadLetterArn = deadLetterArn.value
     ),
     s3Bucket := None,
     lambdaName := Some(sbt.Keys.name.value),
@@ -79,7 +81,7 @@ object AwsLambdaPlugin extends AutoPlugin {
   }
 
   private def doCreateLambda(region: Option[String], jar: File, s3Bucket: Option[String], s3KeyPrefix: Option[String], lambdaName: Option[String], 
-      handlerName: Option[String], lambdaHandlers: Seq[(String, String)], roleArn: Option[String], timeout: Option[Int], memory: Option[Int]): Map[String, LambdaARN] = {
+      handlerName: Option[String], lambdaHandlers: Seq[(String, String)], roleArn: Option[String], timeout: Option[Int], memory: Option[Int], deadLetterArn: Option[String]): Map[String, LambdaARN] = {
     val resolvedRegion = resolveRegion(region)
     val resolvedLambdaHandlers = resolveLambdaHandlers(lambdaName, handlerName, lambdaHandlers)
     val resolvedRoleName = resolveRoleARN(roleArn)
@@ -87,12 +89,13 @@ object AwsLambdaPlugin extends AutoPlugin {
     val resolvedS3KeyPrefix = resolveS3KeyPrefix(s3KeyPrefix)
     val resolvedTimeout = resolveTimeout(timeout)
     val resolvedMemory = resolveMemory(memory)
+    val resolvedDeadLetterArn = resolveDeadLetterARN(deadLetterArn)
 
     AwsS3.pushJarToS3(jar, resolvedBucketId, resolvedS3KeyPrefix) match {
       case Success(s3Key) =>
         for ((resolvedLambdaName, resolvedHandlerName) <- resolvedLambdaHandlers) yield {
           AwsLambda.createLambda(resolvedRegion, jar, resolvedLambdaName, resolvedHandlerName, resolvedRoleName,
-            resolvedBucketId, resolvedS3KeyPrefix, resolvedTimeout, resolvedMemory) match {
+            resolvedBucketId, resolvedS3KeyPrefix, resolvedTimeout, resolvedMemory, resolvedDeadLetterArn) match {
             case Success(createFunctionCodeResult) =>
               resolvedLambdaName.value -> LambdaARN(createFunctionCodeResult.getFunctionArn)
             case Failure(exception) =>
@@ -131,6 +134,9 @@ object AwsLambdaPlugin extends AutoPlugin {
 
   private def resolveMemory(sbtSettingValueOpt: Option[Int]): Option[Memory] =
     sbtSettingValueOpt orElse sys.env.get(EnvironmentVariables.memory).map(_.toInt) map Memory
+
+  private def resolveDeadLetterARN(sbtSettingValueOpt: Option[String]): Option[DeadLetterARN] =
+    sbtSettingValueOpt orElse sys.env.get(EnvironmentVariables.deadLetterArn).map(_.toString) map DeadLetterARN
 
   private def promptUserForRegion(): Region = {
     val inputValue = readInput(s"Enter the name of the AWS region to connect to. (You also could have set the environment variable: ${EnvironmentVariables.region} or the sbt setting: region)")

@@ -43,7 +43,8 @@ private[lambda] object AwsLambda {
                    s3BucketId: S3BucketId,
                    s3Prefix: String,
                    timeout:  Option[Timeout],
-                   memory: Option[Memory]
+                   memory: Option[Memory],
+                   deadLetterName: Option[DeadLetterARN]
                     ): Try[CreateFunctionResult] = {
     try {
       val client = new AWSLambdaClient(AwsCredentials.provider)
@@ -57,7 +58,7 @@ private[lambda] object AwsLambda {
         r.setRuntime(com.amazonaws.services.lambda.model.Runtime.Java8)
         if(timeout.isDefined) r.setTimeout(timeout.get.value)
         if(memory.isDefined)  r.setMemorySize(memory.get.value)
-
+        r.setDeadLetterConfig(new DeadLetterConfig().withTargetArn(deadLetterName.get.value))
         val functionCode = {
           val c = new FunctionCode
           c.setS3Bucket(s3BucketId.value)
