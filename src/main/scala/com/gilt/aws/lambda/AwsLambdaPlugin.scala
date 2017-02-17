@@ -102,7 +102,7 @@ object AwsLambdaPlugin extends AutoPlugin {
     }
   }
 
-  private def doCreateLambda(deployMethod: Option[String], region: Option[String], jar: File, s3Bucket: Option[String], s3KeyPrefix: Option[String], lambdaName: Option[String], 
+  private def doCreateLambda(deployMethod: Option[String], region: Option[String], jar: File, s3Bucket: Option[String], s3KeyPrefix: Option[String], lambdaName: Option[String],
       handlerName: Option[String], lambdaHandlers: Seq[(String, String)], roleArn: Option[String], timeout: Option[Int], memory: Option[Int], deadLetterArn: Option[String]): Map[String, LambdaARN] = {
     val resolvedDeployMethod = resolveDeployMethod(deployMethod)
     val resolvedRegion = resolveRegion(region)
@@ -131,13 +131,13 @@ object AwsLambdaPlugin extends AutoPlugin {
         val functionCode = AwsLambda.createFunctionCodeFromJar(jar)
 
         createLambdaWithFunctionCode(jar, resolvedRegion, resolvedRoleName, resolvedTimeout, resolvedMemory,
-          resolvedLambdaName, resolvedHandlerName, functionCode)
+          resolvedLambdaName, resolvedHandlerName, resolvedDeadLetterArn, functionCode)
       })
     } else
       sys.error(s"Unsupported deploy method: ${resolvedDeployMethod.value}")
   }
 
-  def createLambdaWithFunctionCode(jar: File, resolvedRegion: Region, resolvedRoleName: RoleARN, resolvedTimeout: Option[Timeout], resolvedMemory: Option[Memory], resolvedLambdaName: LambdaName, resolvedHandlerName: HandlerName, resolvedDeadLetterArn: Option[String], functionCode: FunctionCode): (String, LambdaARN) = {
+  def createLambdaWithFunctionCode(jar: File, resolvedRegion: Region, resolvedRoleName: RoleARN, resolvedTimeout: Option[Timeout], resolvedMemory: Option[Memory], resolvedLambdaName: LambdaName, resolvedHandlerName: HandlerName, resolvedDeadLetterArn: Option[DeadLetterARN], functionCode: FunctionCode): (String, LambdaARN) = {
     AwsLambda.createLambdaWithFunctionCode(resolvedRegion, jar, resolvedLambdaName, resolvedHandlerName, resolvedRoleName,
       resolvedTimeout, resolvedMemory, resolvedDeadLetterArn, functionCode) match {
       case Success(createFunctionCodeResult) =>
@@ -223,12 +223,12 @@ object AwsLambdaPlugin extends AutoPlugin {
     AwsIAM.basicLambdaRole() match {
       case Some(basicRole) =>
         val reuseBasicRole = readInput(s"IAM role '${AwsIAM.BasicLambdaRoleName}' already exists. Reuse this role? (y/n)")
-        
+
         if(reuseBasicRole == "y") RoleARN(basicRole.getArn)
         else readRoleARN()
       case None =>
         val createDefaultRole = readInput(s"Default IAM role for AWS Lambda has not been created yet. Create this role now? (y/n)")
-        
+
         if(createDefaultRole == "y") {
           AwsIAM.createBasicLambdaRole() match {
             case Success(createdRole) =>

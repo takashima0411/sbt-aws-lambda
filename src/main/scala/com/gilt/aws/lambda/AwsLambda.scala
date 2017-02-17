@@ -58,12 +58,6 @@ private[lambda] object AwsLambda {
                    roleName: RoleARN,
                    timeout:  Option[Timeout],
                    memory: Option[Memory],
-                   functionCode: FunctionCode
-                  ): Try[CreateFunctionResult] = {
-                   s3BucketId: S3BucketId,
-                   s3Prefix: String,
-                   timeout:  Option[Timeout],
-                   memory: Option[Memory],
                    deadLetterName: Option[DeadLetterARN],
                    functionCode: FunctionCode
                     ): Try[CreateFunctionResult] = {
@@ -80,13 +74,6 @@ private[lambda] object AwsLambda {
         if(timeout.isDefined) r.setTimeout(timeout.get.value)
         if(memory.isDefined)  r.setMemorySize(memory.get.value)
         r.setDeadLetterConfig(new DeadLetterConfig().withTargetArn(deadLetterName.get.value))
-        val functionCode = {
-          val c = new FunctionCode
-          c.setS3Bucket(s3BucketId.value)
-          c.setS3Key(s3Prefix + jar.getName)
-          c
-        }
-
         r.setCode(functionCode)
 
         r
