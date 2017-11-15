@@ -74,8 +74,9 @@ private[lambda] object AwsLambda {
         r.setRuntime(com.amazonaws.services.lambda.model.Runtime.Java8)
         if(timeout.isDefined) r.setTimeout(timeout.get.value)
         if(memory.isDefined)  r.setMemorySize(memory.get.value)
-        r.setDeadLetterConfig(new DeadLetterConfig().withTargetArn(deadLetterName.get.value))
         if(vpcConfig.isDefined) r.setVpcConfig(vpcConfig.get)
+        if(deadLetterName.isDefined)
+          r.setDeadLetterConfig(new DeadLetterConfig().withTargetArn(deadLetterName.get.value))
         r.setCode(functionCode)
 
         r
