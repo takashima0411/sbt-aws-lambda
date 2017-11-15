@@ -1,6 +1,7 @@
 package com.gilt.aws.lambda
 
-import com.amazonaws.services.lambda.model.{FunctionCode, UpdateFunctionCodeRequest}
+import com.amazonaws.services.lambda.model.{FunctionCode, UpdateFunctionCodeRequest, VpcConfig}
+import collection.JavaConversions._
 import sbt._
 
 import scala.util.{Failure, Success}
@@ -22,6 +23,8 @@ object AwsLambdaPlugin extends AutoPlugin {
     val lambdaHandlers = settingKey[Seq[(String, String)]]("A sequence of pairs of Lambda function names to handlers (for multiple handlers in one jar)")
     val deployMethod = settingKey[Option[String]]("S3 for using an S3 bucket to upload the jar or DIRECT for directly uploading a jar file.")
     val deadLetterArn = settingKey[Option[String]]("ARN of the Dead Letter Queue or Topic to send unprocessed messages")
+    val vpcConfigSubnetIds = settingKey[Option[String]]("Comma separated list of subnet IDs for the VPC")
+    val vpcConfigSecurityGroupIds = settingKey[Option[String]]("Comma separated list of security group IDs for the VPC")
   }
 
   import autoImport._
@@ -51,7 +54,9 @@ object AwsLambdaPlugin extends AutoPlugin {
       roleArn = roleArn.value,
       timeout = awsLambdaTimeout.value,
       memory = awsLambdaMemory.value,
-      deadLetterArn = deadLetterArn.value
+      deadLetterArn = deadLetterArn.value,
+      vpcConfigSubnetIds = vpcConfigSubnetIds.value,
+      vpcConfigSecurityGroupIds = vpcConfigSecurityGroupIds.value
     ),
     s3Bucket := None,
     lambdaName := Some(sbt.Keys.name.value),
@@ -103,7 +108,7 @@ object AwsLambdaPlugin extends AutoPlugin {
   }
 
   private def doCreateLambda(deployMethod: Option[String], region: Option[String], jar: File, s3Bucket: Option[String], s3KeyPrefix: Option[String], lambdaName: Option[String],
-      handlerName: Option[String], lambdaHandlers: Seq[(String, String)], roleArn: Option[String], timeout: Option[Int], memory: Option[Int], deadLetterArn: Option[String]): Map[String, LambdaARN] = {
+      handlerName: Option[String], lambdaHandlers: Seq[(String, String)], roleArn: Option[String], timeout: Option[Int], memory: Option[Int], deadLetterArn: Option[String], vpcConfigSubnetIds: Option[String], vpcConfigSecurityGroupIds: Option[String]): Map[String, LambdaARN] = {
     val resolvedDeployMethod = resolveDeployMethod(deployMethod)
     val resolvedRegion = resolveRegion(region)
     val resolvedLambdaHandlers = resolveLambdaHandlers(lambdaName, handlerName, lambdaHandlers)
@@ -111,6 +116,19 @@ object AwsLambdaPlugin extends AutoPlugin {
     val resolvedTimeout = resolveTimeout(timeout)
     val resolvedMemory = resolveMemory(memory)
     val resolvedDeadLetterArn = resolveDeadLetterARN(deadLetterArn)
+    val resolvedVpcConfigSubnetIds = resolveVpcConfigSubnetIds(vpcConfigSubnetIds)
+    val resolvedVpcConfigSecurityGroupIds = resolveVpcConfigSecurityGroupIds(vpcConfigSecurityGroupIds)
+
+    val resolvedVpcConfig = {
+      if (resolvedVpcConfigSubnetIds.isDefined || resolvedVpcConfigSecurityGroupIds.isDefined){
+        val config = new VpcConfig()
+        if (resolvedVpcConfigSubnetIds.isDefined) config.setSubnetIds(resolvedVpcConfigSubnetIds.get.value.split(",").toSeq)
+        if (resolvedVpcConfigSecurityGroupIds.isDefined) config.setSecurityGroupIds(resolvedVpcConfigSecurityGroupIds.get.value.split(",").toSeq)
+        Some(config)
+      } else {
+        None
+      }
+    }
 
     if (resolvedDeployMethod.value == "S3") {
       val resolvedBucketId = resolveBucketId(s3Bucket)
@@ -121,7 +139,7 @@ object AwsLambdaPlugin extends AutoPlugin {
             val functionCode = AwsLambda.createFunctionCodeFromS3(jar, resolvedBucketId)
 
             createLambdaWithFunctionCode(jar, resolvedRegion, resolvedRoleName, resolvedTimeout, resolvedMemory,
-              resolvedLambdaName, resolvedHandlerName, resolvedDeadLetterArn, functionCode)
+              resolvedLambdaName, resolvedHandlerName, resolvedDeadLetterArn, resolvedVpcConfig, functionCode)
           }
         case Failure(exception) =>
           sys.error(s"Error upload jar to S3 lambda: ${exception.getLocalizedMessage}\n${exception.getStackTraceString}")
@@ -131,15 +149,15 @@ object AwsLambdaPlugin extends AutoPlugin {
         val functionCode = AwsLambda.createFunctionCodeFromJar(jar)
 
         createLambdaWithFunctionCode(jar, resolvedRegion, resolvedRoleName, resolvedTimeout, resolvedMemory,
-          resolvedLambdaName, resolvedHandlerName, resolvedDeadLetterArn, functionCode)
+          resolvedLambdaName, resolvedHandlerName, resolvedDeadLetterArn, resolvedVpcConfig, functionCode)
       })
     } else
       sys.error(s"Unsupported deploy method: ${resolvedDeployMethod.value}")
   }
 
-  def createLambdaWithFunctionCode(jar: File, resolvedRegion: Region, resolvedRoleName: RoleARN, resolvedTimeout: Option[Timeout], resolvedMemory: Option[Memory], resolvedLambdaName: LambdaName, resolvedHandlerName: HandlerName, resolvedDeadLetterArn: Option[DeadLetterARN], functionCode: FunctionCode): (String, LambdaARN) = {
+  def createLambdaWithFunctionCode(jar: File, resolvedRegion: Region, resolvedRoleName: RoleARN, resolvedTimeout: Option[Timeout], resolvedMemory: Option[Memory], resolvedLambdaName: LambdaName, resolvedHandlerName: HandlerName, resolvedDeadLetterArn: Option[DeadLetterARN], vpcConfig: Option[VpcConfig], functionCode: FunctionCode): (String, LambdaARN) = {
     AwsLambda.createLambdaWithFunctionCode(resolvedRegion, jar, resolvedLambdaName, resolvedHandlerName, resolvedRoleName,
-      resolvedTimeout, resolvedMemory, resolvedDeadLetterArn, functionCode) match {
+      resolvedTimeout, resolvedMemory, resolvedDeadLetterArn, vpcConfig, functionCode) match {
       case Success(createFunctionCodeResult) =>
         resolvedLambdaName.value -> LambdaARN(createFunctionCodeResult.getFunctionArn)
       case Failure(exception) =>
@@ -180,6 +198,12 @@ object AwsLambdaPlugin extends AutoPlugin {
 
   private def resolveDeadLetterARN(sbtSettingValueOpt: Option[String]): Option[DeadLetterARN] =
     sbtSettingValueOpt orElse sys.env.get(EnvironmentVariables.deadLetterArn).map(_.toString) map DeadLetterARN
+
+  private def resolveVpcConfigSubnetIds(sbtSettingValueOpt: Option[String]): Option[VpcConfigSubnetIds] =
+    sbtSettingValueOpt orElse sys.env.get(EnvironmentVariables.vpcConfigSubnetIds).map(_.toString) map VpcConfigSubnetIds
+
+  private def resolveVpcConfigSecurityGroupIds(sbtSettingValueOpt: Option[String]): Option[VpcConfigSecurityGroupIds] =
+    sbtSettingValueOpt orElse sys.env.get(EnvironmentVariables.vpcConfigSecurityGroupIds).map(_.toString) map VpcConfigSecurityGroupIds
 
   private def promptUserForRegion(): Region = {
     val inputValue = readInput(s"Enter the name of the AWS region to connect to. (You also could have set the environment variable: ${EnvironmentVariables.region} or the sbt setting: region)")

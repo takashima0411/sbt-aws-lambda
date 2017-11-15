@@ -59,6 +59,7 @@ private[lambda] object AwsLambda {
                    timeout:  Option[Timeout],
                    memory: Option[Memory],
                    deadLetterName: Option[DeadLetterARN],
+                   vpcConfig: Option[VpcConfig],
                    functionCode: FunctionCode
                     ): Try[CreateFunctionResult] = {
     try {
@@ -74,6 +75,7 @@ private[lambda] object AwsLambda {
         if(timeout.isDefined) r.setTimeout(timeout.get.value)
         if(memory.isDefined)  r.setMemorySize(memory.get.value)
         r.setDeadLetterConfig(new DeadLetterConfig().withTargetArn(deadLetterName.get.value))
+        if(vpcConfig.isDefined) r.setVpcConfig(vpcConfig.get)
         r.setCode(functionCode)
 
         r
