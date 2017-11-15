@@ -66,7 +66,8 @@ object AwsLambdaPlugin extends AutoPlugin {
     region := None,
     deployMethod := Some("S3"),
     awsLambdaMemory := None,
-    awsLambdaTimeout := None
+    awsLambdaTimeout := None,
+    deadLetterArn := None
   )
 
   private def doUpdateLambda(deployMethod: Option[String], region: Option[String], jar: File, s3Bucket: Option[String], s3KeyPrefix: Option[String],
