@@ -2,9 +2,7 @@ language: scala
 os:
   - linux
 script:
-  - sbt ++$TRAVIS_SCALA_VERSION test
-scala:
-  - 2.10.5
+  - sbt "^ test"
 jdk:
   - oraclejdk8
 notifications:
