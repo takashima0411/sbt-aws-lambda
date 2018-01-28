@@ -9,7 +9,7 @@ version in ThisBuild := "git describe --tags --always --dirty".!!.trim.replaceFi
 libraryDependencies += {
   val sbtV     = (sbtBinaryVersion in pluginCrossBuild).value
   val scalaV   = (scalaBinaryVersion in update).value
-  val assembly = "com.eed3si9n" % "sbt-assembly" % "0.14.5"
+  val assembly = "com.eed3si9n" % "sbt-assembly" % "0.14.6"
   Defaults.sbtPluginExtra(assembly, sbtV, scalaV)
 }
 
