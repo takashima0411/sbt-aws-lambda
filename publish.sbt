@@ -38,5 +38,10 @@ pomExtra := {
       <name>Gary Coady</name>
       <url>https://github.com/fiadliel</url>
     </developer>
+    <developer>
+      <id>sullis</id>
+      <name>Sean Sullivan</name>
+      <url>https://github.com/sullis</url>
+    </developer>
   </developers>
 }
