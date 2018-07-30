@@ -60,7 +60,8 @@ private[lambda] object AwsLambda {
                    memory: Option[Memory],
                    deadLetterName: Option[DeadLetterARN],
                    vpcConfig: Option[VpcConfig],
-                   functionCode: FunctionCode
+                   functionCode: FunctionCode,
+                   environment: Environment
                     ): Try[CreateFunctionResult] = {
     try {
       val client = new AWSLambdaClient(AwsCredentials.provider)
@@ -72,6 +73,7 @@ private[lambda] object AwsLambda {
         r.setHandler(handlerName.value)
         r.setRole(roleName.value)
         r.setRuntime(com.amazonaws.services.lambda.model.Runtime.Java8)
+        r.setEnvironment(environment)
         if(timeout.isDefined) r.setTimeout(timeout.get.value)
         if(memory.isDefined)  r.setMemorySize(memory.get.value)
         if(vpcConfig.isDefined) r.setVpcConfig(vpcConfig.get)

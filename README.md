@@ -46,6 +46,7 @@ sbt-aws-lambda can be configured using sbt settings, environment variables or by
 | awsLambdaMemory |             | The amount of memory in MB for the Lambda function (128-1536, multiple of 64). Defaults to AWS default. |
 | lambdaHandlers |              | Sequence of Lambda names to handler functions (for multiple lambda methods per project). Overrides `lambdaName` and `handlerName` if present. | 
 | deployMethod |                | The preferred method for uploading the jar, either `S3` for uploading to AWS S3 or `DIRECT` for direct upload to AWS Lambda |
+| environment  |                | Seq[(String, String)] of environment variables to set in the lambda function |
 
 An example configuration might look like this:
 
