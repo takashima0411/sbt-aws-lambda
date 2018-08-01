@@ -1,13 +1,7 @@
 
 publishMavenStyle := true
 
-publishTo := {
-  val nexus = "https://oss.sonatype.org/"
-  if (isSnapshot.value)
-    Some("snapshots" at nexus + "content/repositories/snapshots")
-  else
-    Some("releases"  at nexus + "service/local/staging/deploy/maven2")
-}
+publishTo := sonatypePublishTo.value
 
 publishArtifact in Test := false
 
@@ -37,6 +31,11 @@ pomExtra := {
       <id>fiadliel</id>
       <name>Gary Coady</name>
       <url>https://github.com/fiadliel</url>
+    </developer>
+    <developer>
+      <id>sullis</id>
+      <name>Sean Sullivan</name>
+      <url>https://github.com/sullis</url>
     </developer>
   </developers>
 }

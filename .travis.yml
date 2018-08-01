@@ -5,6 +5,4 @@ script:
   - sbt "^ test"
 jdk:
   - oraclejdk8
-notifications:
-  email:
-    - bstjohn@gilt.com
+  - oraclejdk10
