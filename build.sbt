@@ -4,8 +4,7 @@ name := "sbt-aws-lambda"
 
 organization := "com.gilt.sbt"
 
-lazy val root = (project in file("."))
-  .enablePlugins(SbtPlugin)
+enablePlugins(SbtPlugin)
 
 version in ThisBuild := "git describe --tags --always --dirty".!!.trim.replaceFirst("^v", "")
 
@@ -26,4 +25,4 @@ libraryDependencies ++= Seq(
 
 javaVersionPrefix in javaVersionCheck := Some("1.8")
 
-crossSbtVersions := List("0.13.17", "1.1.6")
+crossSbtVersions := List("0.13.17", "1.2.0")
