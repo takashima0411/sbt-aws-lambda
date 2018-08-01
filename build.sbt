@@ -1,8 +1,11 @@
+import scala.sys.process._
+
 name := "sbt-aws-lambda"
 
 organization := "com.gilt.sbt"
 
-sbtPlugin := true
+lazy val root = (project in file("."))
+  .enablePlugins(SbtPlugin)
 
 version in ThisBuild := "git describe --tags --always --dirty".!!.trim.replaceFirst("^v", "")
 
