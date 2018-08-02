@@ -86,7 +86,7 @@ object AwsLambdaPlugin extends AutoPlugin {
     awsLambdaTimeout := None,
     deadLetterArn := None,
     vpcConfigSubnetIds := None,
-    vpcConfigSecurityGroupIds := None
+    vpcConfigSecurityGroupIds := None,
     environment := Nil
   )
 
